@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GopherWeave — Cryptographic RFC 1436 Resurrection</title>
+    <style>
+      :root {
+        --bg: #040a06;
+        --panel: #08120c;
+        --phosphor: #34d399;
+        --amber: #f59e0b;
+        --rose: #fb7185;
+        --border: rgba(52, 211, 153, 0.28);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: #d1fae5; font-size: 13px; padding: 16px; }
+      .shell { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+      .header, .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+      .header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; }
+      .grid { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
+      .pill { padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; display: inline-block; }
+      .ok { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.45); }
+      .bad { background: rgba(244, 63, 94, 0.2); color: #fb7185; border: 1px solid rgba(251, 113, 133, 0.45); }
+      .row-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid rgba(52,211,153,0.16); border-radius: 6px; margin-bottom: 6px; cursor: pointer; background: rgba(4, 10, 6, 0.7); }
+      .row-item:hover { border-color: var(--phosphor); }
+      input, textarea { width: 100%; background: #030705; color: #d1fae5; border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-family: inherit; font-size: 12px; }
+      button { background: #064e3b; color: #ecfdf5; border: 1px solid var(--phosphor); padding: 6px 11px; border-radius: 6px; font-family: inherit; font-weight: 700; cursor: pointer; font-size: 12px; }
+      button.warn { background: #7f1d1d; border-color: var(--rose); }
+      pre { background: #030705; border: 1px solid rgba(52,211,153,0.2); border-radius: 6px; padding: 10px; white-space: pre-wrap; margin: 0; font-size: 12px; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="header">
+        <div>
+          <strong style="font-size:16px;color:#34d399;">GOPHERWEAVE // RFC 1436 + Ed25519 RESURRECTION</strong>
+          <div style="font-size:11px;color:#6ee7b7;margin-top:3px;" id="tcpStatus">TCP Gopher Port: 7070 · Web Phosphor Gateway</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="searchInput" style="width:230px;" placeholder="Type-7 search (e.g. Ed25519)..." />
+          <button id="searchBtn">Type-7 Search</button>
+          <button id="homeBtn">Root Menu (/)</button>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div class="card">
+            <strong style="display:block;margin-bottom:8px;">Live RFC 1436 TCP Directory Menu</strong>
+            <div id="menuBox"></div>
+          </div>
+
+          <div class="card">
+            <strong style="display:block;margin-bottom:8px;">Publish New Ed25519-Signed Gopher Capsule</strong>
+            <input id="pubTitle" placeholder="Capsule title" style="margin-bottom:7px;" />
+            <textarea id="pubBody" rows="3" placeholder="Plaintext document content..." style="margin-bottom:7px;"></textarea>
+            <button id="pubBtn">Sign &amp; Serve on RFC 1436 TCP</button>
+          </div>
+        </div>
+
+        <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <strong id="capTitle">Select a Gopher Capsule</strong>
+            <span id="verifyPill" class="pill ok">IDLE</span>
+          </div>
+          <div id="verifyDetail" style="font-size:11.5px;color:#a7f3d0;"></div>
+          <div style="display:flex;gap:8px;">
+            <button class="warn" id="tamperBtn">Toggle MITM Transit Tamper Test</button>
+          </div>
+          <strong>Verified Capsule Body</strong>
+          <pre id="capBody"></pre>
+          <strong>Raw RFC 1436 TCP Wire Exchange</strong>
+          <pre id="rawWire" style="max-height:170px;overflow:auto;color:#6ee7b7;"></pre>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let activeSelector = '/notes/manifesto';
+
+      async function loadMenu(query = '') {
+        const url = query ? `/api/gopher/search?q=${encodeURIComponent(query)}` : '/api/gopher/menu';
+        const data = await (await fetch(url)).json();
+        const box = document.getElementById('menuBox');
+        box.innerHTML = '';
+        for (const item of data.items) {
+          const div = document.createElement('div');
+          div.className = 'row-item';
+          div.innerHTML = `<span>[${item.type}] ${item.display}</span><span style="color:#6ee7b7;font-size:11px;">${item.selector}</span>`;
+          if (item.type === '0') {
+            div.onclick = () => void openCapsule(item.selector);
+          }
+          box.appendChild(div);
+        }
+        document.getElementById('rawWire').textContent = data.rawTcpResponse || '';
+      }
+
+      async function openCapsule(selector) {
+        activeSelector = selector;
+        const data = await (await fetch(`/api/gopher/capsule?selector=${encodeURIComponent(selector)}`)).json();
+        document.getElementById('capTitle').textContent = `${data.title} (${selector})`;
+        const pill = document.getElementById('verifyPill');
+        pill.textContent = data.verification.valid ? 'ED25519 VERIFIED' : 'SIGNATURE BROKEN (TAMPERED!)';
+        pill.className = 'pill ' + (data.verification.valid ? 'ok' : 'bad');
+        document.getElementById('verifyDetail').textContent = `${data.verification.reason} | SHA-256: ${data.sha256}`;
+        document.getElementById('capBody').textContent = data.body;
+        document.getElementById('rawWire').textContent = data.rawTcpResponse || '';
+      }
+
+      document.getElementById('searchBtn').onclick = () => void loadMenu(document.getElementById('searchInput').value);
+      document.getElementById('homeBtn').onclick = () => void loadMenu('');
+      document.getElementById('tamperBtn').onclick = async () => {
+        await fetch('/api/gopher/tamper', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ selector: activeSelector })
+        });
+        await openCapsule(activeSelector);
+      };
+      document.getElementById('pubBtn').onclick = async () => {
+        const title = document.getElementById('pubTitle').value.trim();
+        const body = document.getElementById('pubBody').value.trim();
+        if (!title || !body) return;
+        const created = await (await fetch('/api/gopher/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, body })
+        })).json();
+        await loadMenu('');
+        await openCapsule(created.selector);
+      };
+
+      void loadMenu('').then(() => openCapsule('/notes/manifesto'));
+    </script>
+  </body>
+</html>
